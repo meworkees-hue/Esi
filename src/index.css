@@ -2,6 +2,7 @@
   margin: 0;
   padding: 0;
   box-sizing: border-box;
+  -webkit-tap-highlight-color: transparent;
 }
 
 html, body, #root {
@@ -10,28 +11,36 @@ html, body, #root {
   overflow: hidden;
 }
 
-/* Remove Vite defaults */
 body {
   font-family: 'Figtree', sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
 
-/* Range slider thumb styling */
+/* Range slider thumb */
 input[type="range"]::-webkit-slider-thumb {
   -webkit-appearance: none;
-  width: 12px;
-  height: 12px;
+  width: 14px;
+  height: 14px;
   border-radius: 50%;
   background: currentColor;
   cursor: pointer;
 }
-
 input[type="range"]::-moz-range-thumb {
-  width: 12px;
-  height: 12px;
+  width: 14px;
+  height: 14px;
   border-radius: 50%;
   background: currentColor;
   border: none;
   cursor: pointer;
+}
+
+/* Mobile: make buttons easier to tap */
+@media (max-width: 480px) {
+  button {
+    min-height: 44px;
+  }
+  input {
+    font-size: 16px !important; /* prevents iOS zoom on focus */
+  }
 }

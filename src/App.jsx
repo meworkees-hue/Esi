@@ -6,7 +6,7 @@ var F = "'Figtree',sans-serif";
 var TIPS = [
   { u: "@adhd_alien", t: "Your brain isn't broken. It just needs the right stimulation to pay attention.", l: "12.4K" },
   { u: "@connordewolfe", t: "ADHD in meetings: my body is here but my brain left to think about dinner.", l: "89.2K" },
-  { u: "@daboradoodles", t: "Doodling in meetings isn't rude — it's how some brains stay focused.", l: "34.1K" },
+  { u: "@daboradoodles", t: "Doodling in meetings isn't rude \u2014 it's how some brains stay focused.", l: "34.1K" },
   { u: "@blkgirllostkeys", t: "Fidgeting isn't disrespect. My brain is working overtime to stay present.", l: "45.8K" },
   { u: "@dustyweb", t: "Meetings need mandatory movement breaks every 20 min. For all brains.", l: "67.3K" },
 ];
@@ -92,13 +92,13 @@ function buildCat(mats) {
   return g;
 }
 
+// Global ref so PiP can access the renderer
+var sceneState = { renderer: null, scene: null, camera: null, clock: null, charGroup: null, pillars: null, keyL: null, pausedRef: null, props: null, charX: 0, charBaseY: 0.5, PC: 16, SP: 3.0 };
+
 function Scene3D(props) {
   var ref = useRef(null);
   var pausedRef = useRef(props.paused);
-
-  useEffect(function() {
-    pausedRef.current = props.paused;
-  }, [props.paused]);
+  useEffect(function() { pausedRef.current = props.paused; }, [props.paused]);
 
   useEffect(function() {
     var el = ref.current;
@@ -127,7 +127,6 @@ function Scene3D(props) {
     camera.position.set(0, 5.5, 18);
 
     scene.add(new THREE.HemisphereLight(props.dark ? 0x2a2826 : 0xf0ebe4, props.dark ? 0x151311 : 0xd0c8be, props.dark ? 0.5 : 0.7));
-
     var keyL = new THREE.DirectionalLight(props.dark ? 0xffe8d0 : 0xfff5ea, props.dark ? 1.2 : 1.4);
     keyL.position.set(5, 14, 8);
     keyL.castShadow = true;
@@ -140,7 +139,6 @@ function Scene3D(props) {
     keyL.shadow.camera.bottom = -10;
     keyL.shadow.camera.far = 40;
     scene.add(keyL);
-
     var fl = new THREE.DirectionalLight(props.dark ? 0x28242a : 0xe0dcd8, 0.3);
     fl.position.set(-6, 5, -3);
     scene.add(fl);
@@ -191,9 +189,22 @@ function Scene3D(props) {
     var charBaseY = 0.5;
     var charX = SX;
     var frameId;
+    var bgInterval = null;
 
-    var animate = function() {
-      frameId = requestAnimationFrame(animate);
+    // Store in global ref for PiP access
+    sceneState.renderer = renderer;
+    sceneState.scene = scene;
+    sceneState.camera = camera;
+    sceneState.clock = clock;
+    sceneState.charGroup = charGroup;
+    sceneState.pillars = pillars;
+    sceneState.keyL = keyL;
+    sceneState.pausedRef = pausedRef;
+    sceneState.props = props;
+    sceneState.charX = charX;
+    sceneState.charBaseY = charBaseY;
+
+    var doFrame = function() {
       if (pausedRef.current) {
         renderer.render(scene, camera);
         return;
@@ -202,13 +213,13 @@ function Scene3D(props) {
       var beat = Math.floor(t / beatSec);
       var bp = (t / beatSec) % 1;
       var tIdx = beat % PC;
-      var tX = pillars[tIdx].baseX;
+      var tXp = pillars[tIdx].baseX;
       var tTopY = pillars[tIdx].height - 0.5 + 0.5;
-      charX += (tX - charX) * (0.06 + props.speed * 0.04);
-      charBaseY += (tTopY - charBaseY) * 0.1;
+      sceneState.charX += (tXp - sceneState.charX) * (0.06 + props.speed * 0.04);
+      sceneState.charBaseY += (tTopY - sceneState.charBaseY) * 0.1;
       var arc = Math.sin(bp * Math.PI);
-      charGroup.position.x = charX;
-      charGroup.position.y = charBaseY + arc * (1.4 + props.randomness * 0.8);
+      charGroup.position.x = sceneState.charX;
+      charGroup.position.y = sceneState.charBaseY + arc * (1.4 + props.randomness * 0.8);
       var ud = charGroup.userData;
       var st = 1 + arc * 0.14;
       ud.body.scale.y = (ud.type === "shadow" ? 1.12 : 0.85) * st;
@@ -222,7 +233,7 @@ function Scene3D(props) {
         ud.fL.position.y = -0.38 + Math.sin(t * 8) * 0.04;
         ud.fR.position.y = -0.38 - Math.sin(t * 8) * 0.04;
       }
-      camera.position.x += (charX - camera.position.x) * 0.025;
+      camera.position.x += (sceneState.charX - camera.position.x) * 0.025;
       camera.lookAt(camera.position.x, 1.3, 0);
       keyL.position.x = camera.position.x + 5;
       keyL.target.position.x = camera.position.x;
@@ -235,7 +246,19 @@ function Scene3D(props) {
       });
       renderer.render(scene, camera);
     };
+
+    var animate = function() {
+      frameId = requestAnimationFrame(animate);
+      doFrame();
+    };
     animate();
+
+    // Background interval keeps rendering when tab is hidden (for PiP)
+    bgInterval = setInterval(function() {
+      if (document.hidden) {
+        doFrame();
+      }
+    }, 1000 / 30);
 
     var onResize = function() {
       var nw = el.clientWidth;
@@ -248,8 +271,10 @@ function Scene3D(props) {
 
     return function() {
       cancelAnimationFrame(frameId);
+      clearInterval(bgInterval);
       window.removeEventListener("resize", onResize);
       renderer.dispose();
+      sceneState.renderer = null;
       if (el.contains(renderer.domElement)) el.removeChild(renderer.domElement);
     };
   }, [props.charId, props.speed, props.randomness, props.dark]);
@@ -283,7 +308,6 @@ function GrainOverlay(props) {
     f = requestAnimationFrame(draw);
     return function() { cancelAnimationFrame(f); };
   }, [props.dark]);
-
   return (
     <canvas ref={ref} style={{
       position: "absolute", inset: 0, width: "100%", height: "100%",
@@ -295,22 +319,22 @@ function GrainOverlay(props) {
 }
 
 function GridBg(props) {
+  var inset = typeof window !== "undefined" && window.innerWidth < 500 ? 8 : 14;
   var c = props.dark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.04)";
   return (
     <div style={{
-      position: "fixed", inset: 14, zIndex: 8, pointerEvents: "none",
+      position: "fixed", inset: inset, zIndex: 8, pointerEvents: "none",
       border: "1px solid " + c,
-      borderRadius: 22,
+      borderRadius: inset === 8 ? 16 : 22,
     }} />
   );
 }
 
 function Breath(props) {
-  var _useState = useState(0);
-  var p = _useState[0];
-  var setP = _useState[1];
+  var _s = useState(0);
+  var p = _s[0];
+  var setP = _s[1];
   var lbl = ["in", "hold", "out", "hold"];
-
   useEffect(function() {
     if (!props.active) return;
     var iv = setInterval(function() {
@@ -318,9 +342,7 @@ function Breath(props) {
     }, 4000);
     return function() { clearInterval(iv); };
   }, [props.active, p]);
-
   if (!props.active) return null;
-
   return (
     <div style={{ display: "flex", alignItems: "center", gap: 14, justifyContent: "center", padding: "4px 0 10px" }}>
       <div style={{
@@ -335,57 +357,117 @@ function Breath(props) {
 }
 
 function PipButton(props) {
-  var _useState = useState(false);
-  var active = _useState[0];
-  var setActive = _useState[1];
+  var _s = useState(false);
+  var active = _s[0];
+  var setActive = _s[1];
+  var popupRef = useRef(null);
 
-  var handlePip = async function() {
-    if (active) {
-      try { document.exitPictureInPicture(); } catch(e) {}
+  var handlePip = function() {
+    // Close existing
+    if (active && popupRef.current && !popupRef.current.closed) {
+      popupRef.current.close();
+      popupRef.current = null;
       setActive(false);
       return;
     }
-    try {
-      var canvases = document.querySelectorAll("canvas");
-      var threeCanvas = null;
-      for (var i = 0; i < canvases.length; i++) {
-        try {
-          if (canvases[i].getContext("webgl2") || canvases[i].getContext("webgl")) {
-            threeCanvas = canvases[i];
-            break;
-          }
-        } catch(e) {}
-      }
-      if (!threeCanvas && canvases.length > 0) {
-        threeCanvas = canvases[0];
-      }
-      if (!threeCanvas) return;
 
-      var stream = threeCanvas.captureStream(30);
-      var video = document.getElementById("esi-pip-video");
-      if (!video) {
-        video = document.createElement("video");
-        video.id = "esi-pip-video";
-        video.style.position = "fixed";
-        video.style.top = "-9999px";
-        video.style.left = "-9999px";
-        video.style.width = "400px";
-        video.style.height = "300px";
-        video.playsInline = true;
-        video.muted = true;
-        document.body.appendChild(video);
-      }
-      video.srcObject = stream;
-      await video.play();
-      await video.requestPictureInPicture();
-      setActive(true);
-      video.addEventListener("leavepictureinpicture", function() {
-        setActive(false);
-        video.srcObject = null;
-      }, { once: true });
-    } catch (e) {
-      console.log("PiP error:", e.message);
+    // Build the HTML as a blob URL — this makes it a standalone page
+    // that Arc and other browsers treat as a real independent window
+    var isDark = props.dark;
+    var bgHex = isDark ? "#1c1a17" : "#f0ebe5";
+    var charHex = isDark ? "0xc8c0b4" : "0x302c28";
+    var eyeHex = isDark ? "0x302c28" : "0xf0ebe5";
+    var gndHex = isDark ? "0x242220" : "0xe0d9d0";
+    var p1 = isDark ? "0xb0a898" : "0x302c28";
+    var p2 = isDark ? "0x7a7268" : "0x8a8278";
+    var p3 = isDark ? "0x504a44" : "0xc8c0b4";
+    var bgVal = isDark ? "0x1c1a17" : "0xf0ebe5";
+    var hemiA = isDark ? "0x2a2826" : "0xf0ebe4";
+    var hemiB = isDark ? "0x151311" : "0xd0c8be";
+    var hemiI = isDark ? "0.5" : "0.7";
+    var keyCol = isDark ? "0xffe8d0" : "0xfff5ea";
+    var keyI = isDark ? "1.2" : "1.4";
+    var toneExp = isDark ? "0.95" : "1.0";
+
+    var html = [
+      '<!DOCTYPE html>',
+      '<html><head><meta charset="utf-8"><title>Esi \u2014 Focus Companion</title>',
+      '<style>*{margin:0;padding:0}body{overflow:hidden;background:' + bgHex + ';width:100vw;height:100vh}</style>',
+      '</head><body>',
+      '<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"><\/script>',
+      '<script>',
+      'var W=window.innerWidth,H=window.innerHeight;',
+      'var r=new THREE.WebGLRenderer({antialias:true});r.setSize(W,H);r.setPixelRatio(Math.min(window.devicePixelRatio,2));',
+      'r.shadowMap.enabled=true;r.shadowMap.type=THREE.PCFSoftShadowMap;',
+      'r.toneMapping=THREE.ACESFilmicToneMapping;r.toneMappingExposure=' + toneExp + ';',
+      'r.setClearColor(' + bgVal + ');document.body.appendChild(r.domElement);',
+      'var s=new THREE.Scene();s.fog=new THREE.Fog(' + bgVal + ',16,45);',
+      'var cam=new THREE.PerspectiveCamera(28,W/H,0.1,100);cam.position.set(0,5.5,18);',
+      's.add(new THREE.HemisphereLight(' + hemiA + ',' + hemiB + ',' + hemiI + '));',
+      'var kL=new THREE.DirectionalLight(' + keyCol + ',' + keyI + ');',
+      'kL.position.set(5,14,8);kL.castShadow=true;kL.shadow.mapSize.set(1024,1024);kL.shadow.radius=12;kL.shadow.bias=-0.001;',
+      'kL.shadow.camera.left=-20;kL.shadow.camera.right=20;kL.shadow.camera.top=10;kL.shadow.camera.bottom=-10;s.add(kL);',
+      'var cM=new THREE.MeshStandardMaterial({color:' + charHex + ',roughness:0.88,metalness:0});',
+      'var eM=new THREE.MeshStandardMaterial({color:' + eyeHex + ',roughness:0.4,emissive:' + eyeHex + ',emissiveIntensity:0.3});',
+      'var gn=new THREE.Mesh(new THREE.PlaneGeometry(80,80),new THREE.MeshStandardMaterial({color:' + gndHex + ',roughness:1}));',
+      'gn.rotation.x=-Math.PI/2;gn.position.y=-0.5;gn.receiveShadow=true;s.add(gn);',
+      'var pM=[new THREE.MeshStandardMaterial({color:' + p1 + ',roughness:0.9}),new THREE.MeshStandardMaterial({color:' + p2 + ',roughness:0.9}),new THREE.MeshStandardMaterial({color:' + p3 + ',roughness:0.9})];',
+      'var pl=[],PC=16,SP=3,SX=-10,sd=[];for(var i=0;i<PC;i++)sd.push(Math.random());',
+      'for(var i=0;i<PC;i++){var h=0.4+Math.abs(Math.sin(i*0.7))*1.8+sd[i]*0.45;var w=0.2+sd[i]*0.12;',
+      'var m=new THREE.Mesh(new THREE.CylinderGeometry(w,w,h,16),pM[i%3]);m.position.set(SX+i*SP,h/2-0.5,0);m.castShadow=true;m.receiveShadow=true;s.add(m);',
+      'pl.push({mesh:m,height:h,baseX:SX+i*SP});}',
+      'var cG=new THREE.Group();',
+      'var bd=new THREE.Mesh(new THREE.SphereGeometry(0.42,32,32),cM);bd.scale.set(0.92,1.12,0.88);bd.castShadow=true;cG.add(bd);',
+      'var eg=new THREE.SphereGeometry(0.065,12,12);',
+      'var el=new THREE.Mesh(eg,eM);el.position.set(-0.11,0.16,0.36);cG.add(el);',
+      'var er=new THREE.Mesh(eg,eM);er.position.set(0.11,0.16,0.36);cG.add(er);',
+      'var wi=new THREE.Mesh(new THREE.CylinderGeometry(0.018,0.004,0.28,8),cM);wi.position.set(0,0.58,0);cG.add(wi);',
+      'var fg=new THREE.SphereGeometry(0.08,8,8);',
+      'var fl=new THREE.Mesh(fg,cM);fl.position.set(-0.13,-0.5,0.03);fl.scale.y=0.55;cG.add(fl);',
+      'var fr=new THREE.Mesh(fg,cM);fr.position.set(0.13,-0.5,0.03);fr.scale.y=0.55;cG.add(fr);',
+      'cG.position.set(SX,0.5,0);cG.traverse(function(c){if(c.isMesh)c.castShadow=true;});s.add(cG);',
+      'var ck=new THREE.Clock(),cX=SX,cY=0.5,bs=60/72;',
+      'function anim(){requestAnimationFrame(anim);var t=ck.getElapsedTime();',
+      'var bt=Math.floor(t/bs),bp=(t/bs)%1,ti=bt%PC;',
+      'var tX=pl[ti].baseX,tY=pl[ti].height-0.5+0.5;',
+      'cX+=(tX-cX)*0.08;cY+=(tY-cY)*0.1;var a=Math.sin(bp*Math.PI);',
+      'cG.position.x=cX;cG.position.y=cY+a*1.6;',
+      'bd.scale.y=1.12*(1+a*0.14);wi.rotation.z=Math.sin(t*3)*0.25;',
+      'fl.position.y=-0.5+Math.sin(t*8)*0.04;fr.position.y=-0.5-Math.sin(t*8)*0.04;',
+      'cam.position.x+=(cX-cam.position.x)*0.025;cam.lookAt(cam.position.x,1.3,0);',
+      'kL.position.x=cam.position.x+5;kL.target.position.x=cam.position.x;kL.target.updateMatrixWorld();',
+      'pl.forEach(function(p){if(p.mesh.position.x-cam.position.x<-PC*SP*0.4){p.mesh.position.x+=PC*SP;p.baseX+=PC*SP;}});',
+      'r.render(s,cam);}anim();',
+      'window.addEventListener("resize",function(){W=window.innerWidth;H=window.innerHeight;cam.aspect=W/H;cam.updateProjectionMatrix();r.setSize(W,H);});',
+      '<\/script></body></html>'
+    ].join("\n");
+
+    var blob = new Blob([html], { type: "text/html" });
+    var url = URL.createObjectURL(blob);
+
+    var w = 420;
+    var h = 300;
+    var left = window.screen.width - w - 30;
+    var top = 30;
+    var popup = window.open(url, "_blank", "width=" + w + ",height=" + h + ",left=" + left + ",top=" + top + ",resizable=yes,scrollbars=no,toolbar=no,menubar=no,location=no,status=no");
+
+    if (!popup) {
+      URL.revokeObjectURL(url);
+      alert("Please allow popups for this site to use pop-out.");
+      return;
     }
+
+    popupRef.current = popup;
+    setActive(true);
+
+    var checkClosed = setInterval(function() {
+      if (!popup || popup.closed) {
+        clearInterval(checkClosed);
+        URL.revokeObjectURL(url);
+        popupRef.current = null;
+        setActive(false);
+      }
+    }, 500);
   };
 
   return (
@@ -419,32 +501,19 @@ function SliderInput(props) {
 }
 
 export default function App() {
-  var _on = useState(false);
-  var on = _on[0]; var setOn = _on[1];
-  var _sec = useState(0);
-  var sec = _sec[0]; var setSec = _sec[1];
-  var _run = useState(false);
-  var run = _run[0]; var setRun = _run[1];
-  var _notes = useState([]);
-  var notes = _notes[0]; var setNotes = _notes[1];
-  var _ni = useState("");
-  var ni = _ni[0]; var setNi = _ni[1];
-  var _br = useState(false);
-  var br = _br[0]; var setBr = _br[1];
-  var _sn = useState(false);
-  var sn = _sn[0]; var setSn = _sn[1];
-  var _ti = useState(0);
-  var ti = _ti[0]; var setTi = _ti[1];
-  var _fade = useState(false);
-  var fade = _fade[0]; var setFade = _fade[1];
-  var _charId = useState("shadow");
-  var charId = _charId[0]; var setCharId = _charId[1];
-  var _speed = useState(0.44);
-  var speed = _speed[0]; var setSpeed = _speed[1];
-  var _rnd = useState(0.3);
-  var rnd = _rnd[0]; var setRnd = _rnd[1];
-  var _dark = useState(false);
-  var dark = _dark[0]; var setDark = _dark[1];
+  var _on = useState(false); var on = _on[0]; var setOn = _on[1];
+  var _sec = useState(0); var sec = _sec[0]; var setSec = _sec[1];
+  var _run = useState(false); var run = _run[0]; var setRun = _run[1];
+  var _notes = useState([]); var notes = _notes[0]; var setNotes = _notes[1];
+  var _ni = useState(""); var ni = _ni[0]; var setNi = _ni[1];
+  var _br = useState(false); var br = _br[0]; var setBr = _br[1];
+  var _sn = useState(false); var sn = _sn[0]; var setSn = _sn[1];
+  var _ti = useState(0); var ti = _ti[0]; var setTi = _ti[1];
+  var _fade = useState(false); var fade = _fade[0]; var setFade = _fade[1];
+  var _charId = useState("shadow"); var charId = _charId[0]; var setCharId = _charId[1];
+  var _speed = useState(0.44); var speed = _speed[0]; var setSpeed = _speed[1];
+  var _rnd = useState(0.3); var rnd = _rnd[0]; var setRnd = _rnd[1];
+  var _dark = useState(false); var dark = _dark[0]; var setDark = _dark[1];
   var iv = useRef(null);
 
   useEffect(function() {
@@ -478,15 +547,7 @@ export default function App() {
     setNotes(function(n) { return n.concat([{ t: ni.trim(), ts: ts }]); });
     setNi("");
   };
-
-  var reset = function() {
-    setOn(false);
-    setRun(false);
-    setSec(0);
-    setNotes([]);
-    setBr(false);
-    setSn(false);
-  };
+  var reset = function() { setOn(false); setRun(false); setSec(0); setNotes([]); setBr(false); setSn(false); };
 
   var bg = dark ? "#1c1a17" : "#f0ebe5";
   var fg = dark ? "#c8c0b4" : "#302c28";
@@ -494,28 +555,19 @@ export default function App() {
   var faint = dark ? "#3a3630" : "#c0b8ae";
   var cardBg = dark ? "rgba(28,26,23,0.85)" : "rgba(240,235,229,0.82)";
   var cardBd = dark ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.06)";
-
+  var isMobile = typeof window !== "undefined" && window.innerWidth < 500;
   var card = {
-    background: cardBg,
-    borderRadius: 18,
+    background: cardBg, borderRadius: 18,
     border: "1px solid " + cardBd,
-    backdropFilter: "blur(40px)",
-    WebkitBackdropFilter: "blur(40px)",
+    backdropFilter: "blur(40px)", WebkitBackdropFilter: "blur(40px)",
   };
-
   var pillBtn = function(act) {
     return {
       background: act ? (dark ? "rgba(255,255,255,0.07)" : "rgba(48,44,40,0.06)") : "transparent",
       border: "1px solid " + (act ? (dark ? "rgba(255,255,255,0.12)" : "rgba(48,44,40,0.12)") : cardBd),
-      borderRadius: 50,
-      padding: "10px 22px",
-      fontSize: 12,
-      color: act ? fg : sub,
-      cursor: "pointer",
-      fontWeight: 400,
-      letterSpacing: 0.5,
-      transition: "all 0.3s ease",
-      fontFamily: F,
+      borderRadius: 50, padding: "10px 22px", fontSize: 12,
+      color: act ? fg : sub, cursor: "pointer", fontWeight: 400,
+      letterSpacing: 0.5, transition: "all 0.3s ease", fontFamily: F,
     };
   };
 
@@ -523,21 +575,19 @@ export default function App() {
   if (!on) {
     return (
       <div style={{ minHeight: "100vh", position: "relative", overflow: "hidden", fontFamily: F, color: fg }}>
-        <Scene3D charId={charId} speed={speed} randomness={rnd} dark={dark} paused={!run} />
+        <Scene3D charId={charId} speed={speed} randomness={rnd} dark={dark} paused={false} />
         <GrainOverlay dark={dark} />
         <GridBg dark={dark} />
-
-        <div style={{ position: "relative", zIndex: 10, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", minHeight: "100vh", padding: 20 }}>
-          <div style={Object.assign({}, card, { padding: "32px 28px", textAlign: "center", maxWidth: 380, width: "100%" })}>
-            <p style={{ fontSize: 10, color: faint, letterSpacing: 5, fontWeight: 400, margin: "0 0 4px" }}>RHYTHMIC FOCUS</p>
-            <h1 style={{ fontSize: 34, fontWeight: 300, color: fg, margin: 0, letterSpacing: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 12 }}>
-              <img src="/logo.png" alt="Esi" style={{ width: 36, height: 36, objectFit: "contain" }} onError={function(e) { e.target.style.display = "none"; }} />
+        <div style={{ position: "relative", zIndex: 10, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", minHeight: "100vh", padding: isMobile ? 12 : 20 }}>
+          <div style={Object.assign({}, card, { padding: isMobile ? "24px 18px" : "32px 28px", textAlign: "center", maxWidth: 380, width: "100%" })}>
+            <p style={{ fontSize: isMobile ? 9 : 10, color: faint, letterSpacing: 5, fontWeight: 400, margin: "0 0 4px" }}>RHYTHMIC FOCUS</p>
+            <h1 style={{ fontSize: isMobile ? 28 : 34, fontWeight: 300, color: fg, margin: 0, letterSpacing: 1, display: "flex", alignItems: "center", justifyContent: "center", gap: isMobile ? 8 : 12 }}>
+              <img src="/logo.png" alt="Esi" style={{ width: isMobile ? 28 : 36, height: isMobile ? 28 : 36, objectFit: "contain" }} onError={function(e) { e.target.style.display = "none"; }} />
               Esi
             </h1>
             <p style={{ color: sub, fontSize: 13, lineHeight: 1.8, margin: "12px 0 20px", fontWeight: 300 }}>
-              Your companion hops in a steady rhythm —<br />a visual anchor for your ADHD brain.
+              Your companion hops in a steady rhythm {"\u2014"}<br />a visual anchor for your ADHD brain.
             </p>
-
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 16 }}>
               {[{ id: "shadow", n: "Shadow", d: "mysterious & calm" }, { id: "cat", n: "Odd Cat", d: "weird & curious" }].map(function(c) {
                 var isActive = charId === c.id;
@@ -554,17 +604,14 @@ export default function App() {
                 );
               })}
             </div>
-
             <div style={{ display: "grid", gap: 6, marginBottom: 14 }}>
               <SliderInput value={speed} onChange={setSpeed} label="speed" dark={dark} />
               <SliderInput value={rnd} onChange={setRnd} label="chaos" dark={dark} />
             </div>
-
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 18 }}>
               <button onClick={function() { setDark(!dark); }} style={pillBtn(dark)}>{dark ? "\u25CF dark" : "\u25CB dark"}</button>
               <button disabled={true} style={Object.assign({}, pillBtn(false), { opacity: 0.4, cursor: "not-allowed" })}>2d \u00B7 soon</button>
             </div>
-
             <div style={{
               background: dark ? "rgba(255,255,255,0.02)" : "rgba(0,0,0,0.02)",
               borderRadius: 12, padding: "10px 13px", marginBottom: 18, textAlign: "left",
@@ -578,7 +625,6 @@ export default function App() {
               </div>
               <p style={{ fontSize: 12, color: sub, lineHeight: 1.6, margin: 0, fontWeight: 300 }}>{TIPS[ti].t}</p>
             </div>
-
             <button onClick={function() { setOn(true); setRun(true); }} style={{
               background: fg, border: "none", color: bg,
               padding: "14px 0", borderRadius: 50, fontSize: 13,
@@ -588,7 +634,6 @@ export default function App() {
             onMouseOver={function(e) { e.currentTarget.style.opacity = "0.85"; }}
             onMouseOut={function(e) { e.currentTarget.style.opacity = "1"; }}
             >begin session</button>
-
             <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 12, marginTop: 16 }}>
               <a href="https://x.com/Meworkees" target="_blank" rel="noopener noreferrer" style={{ fontSize: 11, color: sub, textDecoration: "none", fontWeight: 400, display: "flex", alignItems: "center", gap: 4 }}>
                 <span style={{ fontWeight: 600, fontSize: 12 }}>{"\uD835\uDD4F"}</span> say hi
@@ -609,23 +654,19 @@ export default function App() {
       <Scene3D charId={charId} speed={speed} randomness={rnd} dark={dark} paused={!run} />
       <GrainOverlay dark={dark} />
       <GridBg dark={dark} />
-
-      <div style={{ position: "relative", zIndex: 10, maxWidth: 440, margin: "0 auto", padding: "14px 20px 210px" }}>
-        <div style={Object.assign({}, card, { display: "flex", justifyContent: "space-between", alignItems: "center", padding: "9px 14px", marginBottom: 20 })}>
-          <button onClick={reset} style={{ background: "none", border: "none", color: sub, fontSize: 12, cursor: "pointer", fontWeight: 300, fontFamily: F }}>{"\u2190"} end</button>
-          <span style={{ fontSize: 20, fontWeight: 300, color: fg, fontVariantNumeric: "tabular-nums", letterSpacing: 4 }}>{mm}:{ss}</span>
+      <div style={{ position: "relative", zIndex: 10, maxWidth: 440, margin: "0 auto", padding: isMobile ? "12px 14px 200px" : "14px 20px 210px" }}>
+        <div style={Object.assign({}, card, { display: "flex", justifyContent: "space-between", alignItems: "center", padding: isMobile ? "8px 10px" : "9px 14px", marginBottom: isMobile ? 14 : 20 })}>
+          <button onClick={reset} style={{ background: "none", border: "none", color: sub, fontSize: isMobile ? 11 : 12, cursor: "pointer", fontWeight: 300, fontFamily: F }}>{"\u2190"} end</button>
+          <span style={{ fontSize: isMobile ? 18 : 20, fontWeight: 300, color: fg, fontVariantNumeric: "tabular-nums", letterSpacing: isMobile ? 2 : 4 }}>{mm}:{ss}</span>
           <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-            <PipButton dark={dark} />
-            <button onClick={function() { setRun(!run); }} style={{ background: "none", border: "none", color: sub, fontSize: 12, cursor: "pointer", fontWeight: 300, fontFamily: F }}>{run ? "pause" : "play"}</button>
+            {!isMobile ? <PipButton dark={dark} /> : null}
+            <button onClick={function() { setRun(!run); }} style={{ background: "none", border: "none", color: sub, fontSize: isMobile ? 11 : 12, cursor: "pointer", fontWeight: 300, fontFamily: F }}>{run ? "pause" : "play"}</button>
           </div>
         </div>
-
-        <div style={{ textAlign: "center", marginBottom: 14 }}>
-          <p style={{ fontSize: 18, fontWeight: 300, color: fg, lineHeight: 1.85, margin: 0, whiteSpace: "pre-line", opacity: 0.85 }}>{promptText}</p>
+        <div style={{ textAlign: "center", marginBottom: isMobile ? 10 : 14 }}>
+          <p style={{ fontSize: isMobile ? 16 : 18, fontWeight: 300, color: fg, lineHeight: 1.85, margin: 0, whiteSpace: "pre-line", opacity: 0.85 }}>{promptText}</p>
         </div>
-
         <Breath active={br} dark={dark} />
-
         <div style={Object.assign({}, card, { padding: "10px 13px", marginTop: 6, opacity: fade ? 0 : 1, transition: "opacity 0.35s ease" })}>
           <div style={{ display: "flex", alignItems: "center", gap: 5, marginBottom: 3 }}>
             <span style={{ fontSize: 12, fontWeight: 600, color: fg }}>{"\uD835\uDD4F"}</span>
@@ -635,21 +676,17 @@ export default function App() {
           <p style={{ fontSize: 12, color: sub, lineHeight: 1.55, margin: 0, fontWeight: 300 }}>{TIPS[ti].t}</p>
         </div>
       </div>
-
       <div style={{
         position: "fixed", bottom: 0, left: 0, right: 0, zIndex: 30,
         background: dark ? "rgba(26,24,22,0.75)" : "rgba(234,229,223,0.7)",
-        backdropFilter: "blur(44px) saturate(1.4)",
-        WebkitBackdropFilter: "blur(44px) saturate(1.4)",
-        borderTop: "1px solid " + cardBd,
-        padding: "12px 20px 26px",
+        backdropFilter: "blur(44px) saturate(1.4)", WebkitBackdropFilter: "blur(44px) saturate(1.4)",
+        borderTop: "1px solid " + cardBd, padding: isMobile ? "10px 14px 22px" : "12px 20px 26px",
       }}>
         <div style={{ maxWidth: 440, margin: "0 auto" }}>
           <div style={{ display: "flex", gap: 10, justifyContent: "center", marginBottom: sn ? 12 : 0 }}>
             <button onClick={function() { setBr(!br); }} style={pillBtn(br)}>{br ? "\u25CF breathing" : "breathe"}</button>
             <button onClick={function() { setSn(!sn); }} style={pillBtn(sn)}>{notes.length > 0 ? notes.length + " note" + (notes.length > 1 ? "s" : "") : "jot"}</button>
           </div>
-
           {sn ? (
             <div style={Object.assign({}, card, { padding: 12 })}>
               <div style={{ display: "flex", gap: 8, marginBottom: notes.length ? 8 : 0 }}>
@@ -683,7 +720,6 @@ export default function App() {
               </div>
             </div>
           ) : null}
-
           <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 12, marginTop: 10 }}>
             <a href="https://x.com/Meworkees" target="_blank" rel="noopener noreferrer" style={{ fontSize: 10, color: faint, textDecoration: "none" }}>{"\uD835\uDD4F"} @Meworkees</a>
             <span style={{ color: faint, fontSize: 8 }}>{"\u00B7"}</span>
